@@ -8,7 +8,7 @@ A production-grade private cloud built from the ground up as a learning environm
 
 ![Homelab Architecture](docs/homelab-architecture.svg)
 
-**Compute:** 2 Dell PowerEdge rack servers (R340 and R430), 6 tower servers (serv01–06), and 7 mini PCs (mini01–07), all running Proxmox VE — 15 nodes total. Workloads are distributed across dedicated VMs and LXC containers depending on resource requirements.
+**Compute:** 2 Dell PowerEdge rack servers (R340 and R430), 6 tower servers (serv01–06), and 7 mini PCs (mini01–07), all running Proxmox VE for a total of 15 nodes. Workloads are distributed across dedicated VMs and LXC containers depending on resource requirements.
 
 **Networking:** VLAN-segmented flat network with a management VLAN (10.0.0.0/24) and planned expansion into internal services, internet-exposed, and IoT/WiFi tiers. All inter-VLAN routing is controlled by firewall policy.
 
@@ -36,21 +36,21 @@ A production-grade private cloud built from the ground up as a learning environm
 
 ## Design Philosophy
 
-Several core principles guided the architecture of this lab — not as an afterthought, but as constraints applied from the beginning that shaped most of the decisions you'll see throughout.
+Several core principles guided the architecture of this lab as I built it from the ground up. Many of these were identified in my original homelab builtout that ended up being completely wiped. Most of the other goals came from the desire to challenge myself and understand systems design on a deeper level.
 
-**Security and least-privilege access** were the primary drivers. The Proxmox firewall enforces default-deny on both inbound and outbound traffic at the hypervisor level, meaning nothing communicates unless explicitly permitted. Service accounts are scoped to the minimum necessary access — Portainer's Gitea tokens are read-only, unable to push or modify repository contents. Web GUIs are restricted to Traefik IPs and specific management machines; the broader LAN subnet has no access to them. Secrets moved from plaintext files to Vaultwarden early on. SSO and MFA are enforced across all management interfaces via Authentik. Internet exposure is minimized by design — most services are internal-only or accessible only over Tailscale, with a Cloudflare Tunnel handling the small subset that needs public reachability. Each layer is intended to limit the blast radius of any single compromised component.
+**Security and least-privilege access** were the primary drivers. The Proxmox firewall enforces default-deny on both inbound and outbound traffic at the hypervisor level, meaning nothing communicates unless explicitly permitted. Service accounts are scoped to the minimum necessary access to reduce blast radius. For example, Portainer's Gitea tokens are read-only, unable to push or modify repository contents. Web GUIs are restricted to Traefik IPs and specific management machines; the broader LAN subnet has no access to them. Secrets moved from plaintext files to Vaultwarden early on. SSO and MFA are enforced across all management interfaces via Authentik. Internet exposure is minimized by design; most services are internal-only or accessible only over Tailscale, with a Cloudflare Tunnel handling the small subset that needs public reachability. Each layer is intended to limit the blast radius of any single compromised component.
 
-**Maintainability and consistency** shaped the operational model. A previous lab iteration accumulated patchwork solutions, inconsistent conventions, and tightly coupled configurations — changes reliably broke unrelated things. This lab was designed to avoid that. Infrastructure changes flow through Git: each complex stack has a dedicated Gitea repository, Docker Compose files follow a consistent layout, and Portainer deploys from those repositories via GitOps workflows rather than ad-hoc changes. Naming conventions, VM roles, and container configurations are standardized across hosts. Purpose-built VMs handle specific domains (mgmt-01, obs-01, auth-01, etc.) rather than co-locating unrelated services. Ansible and Semaphore handle cluster-wide automation and scheduled health checks. The goal is an environment where making a change is straightforward and its scope is predictable.
+**Maintainability and consistency** shaped the operational model. A previous lab iteration accumulated patchwork solutions, inconsistent conventions, and tightly coupled configurations; changes reliably broke unrelated things, to the point where I actively avoided making any changes to my lab. This lab was designed to avoid that, and while my previous homelab had many issues, those same issues taught me what to focus on and how to avoid those pitfalls in this iteration. Infrastructure changes flow through Git: each complex stack has a dedicated Gitea repository, Docker Compose files follow a consistent layout, and Portainer deploys from those repositories via GitOps workflows rather than ad-hoc changes. Naming conventions, VM roles, and container configurations are standardized across hosts. Purpose-built VMs handle specific domains (mgmt-01, obs-01, auth-01, etc.) rather than co-locating unrelated services. Ansible and Semaphore handle cluster-wide automation and scheduled health checks. The goal is an environment where making a change is straightforward and its scope is predictable.
 
-**Redundancy and disaster recovery** were informed by real data loss from the previous lab. The current design targets the ability to survive any single failure — whether a disk, a host, a power event, or a security incident — without permanent data loss or extended downtime. DNS runs across three nodes. Reverse proxies are deployed in a redundant pair with automatic failover. Proxmox Backup Server runs a two-node chain with offsite sync to Cloudflare R2, ensuring a clean copy survives even a local ransomware event. ZFS provides storage-level redundancy on the NAS. UPS units cover all hardware against power loss. For services not yet redundant, break-glass recovery procedures are documented and tested. Expanding redundancy to the observability, auth, and secrets stacks is an active near-term priority.
+**Redundancy and disaster recovery** were informed by real data loss from the previous lab. The current design targets the ability to survive any single failure, whether that be a disk, a host, a power event, or a security incident, without permanent data loss or extended downtime. DNS runs across three nodes. Reverse proxies are deployed in a redundant pair with automatic failover. Proxmox Backup Server runs a two-node chain with offsite sync to Cloudflare R2, ensuring a clean copy survives even a local ransomware event. ZFS provides storage-level redundancy on the NAS. UPS units cover all hardware against power loss. For services not yet redundant, break-glass recovery procedures are documented and tested. Expanding redundancy to the observability, auth, and secrets stacks is an active near-term priority.
 
-**Observability** closes the loop. Prometheus scrapes metrics from all hosts via node, cAdvisor, PVE, PBS, and blackbox exporters. Grafana provides dashboards. Loki aggregates logs via Alloy. Alertmanager handles routing and email notifications. Weekly iPerf3 tests baseline network throughput between hosts to catch degradation before it becomes a problem. The intent is that failures surface through alerts and dashboards rather than being discovered when something stops working.
+**Observability** ties the whole environment together. Prometheus scrapes metrics from all hosts via node, cAdvisor, PVE, PBS, and blackbox exporters. Grafana provides dashboards. Loki aggregates logs via Alloy. Alertmanager handles routing and email notifications. Weekly iPerf3 tests baseline network throughput between hosts to catch degradation before it becomes a problem. The intent is that failures surface through alerts and dashboards rather than being discovered when something stops working.
 
 ---
 
 ## Key Design Patterns
 
-**GitOps deployments** — Complex stacks (reverse proxies, observability, auth, management) each have a dedicated Gitea repository. Docker Compose files live in a `/compose` subdirectory. Each repository has a dedicated Gitea service account scoped to that repo only, following least-privilege principles — no single credential grants access across stacks. Portainer uses read-only access tokens tied to these service accounts, meaning it can pull Compose files but cannot push or modify repository contents. All infrastructure changes go through Git.
+**GitOps deployments** — Complex stacks (reverse proxies, observability, auth, management) each have a dedicated Gitea repository. Docker Compose files live in a `/compose` subdirectory. Each repository has a dedicated Gitea service account scoped to that repo only, following least-privilege principles; no single credential grants access across stacks. Portainer uses read-only access tokens tied to these service accounts, meaning it can pull Compose files but cannot push or modify repository contents. All infrastructure changes go through Git.
 
 **Zero-trust firewall** — Proxmox firewall enforces default-deny at the hypervisor level for both inbound and outbound traffic. Services communicate only on explicitly permitted ports to permitted sources, using IPSets for source groups and Security Groups for reusable rule sets.
 
@@ -58,7 +58,7 @@ Several core principles guided the architecture of this lab — not as an aftert
 
 **Layered backup chain** — `pbs-serv02` runs backup, verify, and prune jobs against all VMs and containers. `pbs-serv03` runs sync jobs from `pbs-serv02` approximately 2 hours later. A weekly rsync job replicates a backup of the PBS datastore to a Cloudflare R2 bucket for offsite cold storage.
 
-**Observability stack** — Prometheus scrapes metrics from cAdvisor, node_exporter, pve_exporter, pbs_exporter, and blackbox_exporter across all hosts. Grafana provides dashboards. Alloy ships logs to Loki. Weekly iPerf3 tests run between hosts to baseline network throughput and catch degradation early.
+**Observability stack** — Prometheus scrapes metrics from cAdvisor, node_exporter, pve_exporter, pbs_exporter, and blackbox_exporter across all hosts. Grafana provides dashboards, Alloy ships logs to Loki, and weekly iPerf3 tests run between hosts to baseline network throughput and catch degradation early.
 
 ---
 
@@ -68,11 +68,11 @@ All shared storage is served by `serv01`, which runs two independent ZFS volumes
 
 **HDD volume — RAIDZ mirror (4 drives, ~30TB usable):** Primary long-term storage. Provides redundancy and high capacity. Used for large data archives, VM storage, ISO libraries, and anything where durability matters more than throughput.
 
-**NVMe volume — RAIDZ0 (single NVMe, ~4TB):** High-I/O scratch and transfer tier. No redundancy by design — used for fast temporary transfers and workloads where speed is the priority and the data is either ephemeral or lives elsewhere durably.
+**NVMe volume — RAIDZ0 (single NVMe, ~4TB):** High-I/O scratch and transfer tier. No redundancy by design, used for fast temporary transfers and workloads where speed is the priority and the data is either ephemeral or lives elsewhere durably.
 
-Each volume has ZFS datasets created on it for dedicated purposes (SMB storage and NFS storage), making storage space dynamically allocated within each volume — datasets grow as needed rather than being statically partitioned. This means the full capacity of each pool is available to whichever dataset needs it at any given time.
+Each volume has ZFS datasets created on it for dedicated purposes (SMB storage and NFS storage), making storage space dynamically allocated within each volume. This means that datasets grow as needed until all storage is used rather than being statically partitioned. This also means that the full capacity of each pool is available to whichever dataset needs it at any given time.
 
-Both NFS and SMB (Samba) are served from all four datasets, making storage available to Proxmox nodes and VMs via NFS mounts, and to Windows devices on the network via Samba shares — from the same underlying ZFS infrastructure.
+Both NFS and SMB (Samba) are served from a dataset on each pool, making storage available to Proxmox nodes and VMs via NFS mounts, and to Windows devices on the network via Samba shares. This also allows the NFS and SMB shares to use the same underlying ZFS infrastructure.
 
 ---
 
@@ -126,7 +126,7 @@ Tailscale is deployed on all primary servers, providing secure remote access wit
 | Observability stack | ✅ Live · single node | obs-01 redundancy planned |
 | Vaultwarden | ✅ Live · single node | Redundancy planned |
 | Internal PKI | ✅ Live | Offline root CA + step-ca |
-| VLAN segmentation | 🔄 In progress | Management VLAN live; internal services, IoT, and internet-exposed VLANs planned |
+| VLAN segmentation | 🔄 In progress | Management and internet-exposed VLANS live; internal services, IoT, and Wi-Fi VLANs planned |
 | UPS shutdown automation | 🔄 In progress | Hardware in place, automation not yet configured |
 | RustDesk server | 📋 Planned | Self-hosted remote desktop relay |
 | Lab wiki / documentation platform | 📋 Planned | Centralized internal docs |
