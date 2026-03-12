@@ -6,6 +6,8 @@ A production-grade private cloud built from the ground up as a learning environm
 
 ## Architecture Overview
 
+![Homelab Architecture](docs/homelab-architecture.svg)
+
 **Compute:** 2 Dell PowerEdge rack servers (R340 and R430), 6 tower servers (serv01–06), and 7 mini PCs (mini01–07), all running Proxmox VE — 15 nodes total. Workloads are distributed across dedicated VMs and LXC containers depending on resource requirements.
 
 **Networking:** VLAN-segmented flat network with a management VLAN (10.0.0.0/24) and planned expansion into internal services, internet-exposed, and IoT/WiFi tiers. All inter-VLAN routing is controlled by firewall policy.
