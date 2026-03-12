@@ -34,6 +34,20 @@ A production-grade private cloud built from the ground up as a learning environm
 
 ---
 
+## Design Philosophy
+
+Several core principles guided the architecture of this lab — not as an afterthought, but as constraints applied from the beginning that shaped most of the decisions you'll see throughout.
+
+**Security and least-privilege access** were the primary drivers. The Proxmox firewall enforces default-deny on both inbound and outbound traffic at the hypervisor level, meaning nothing communicates unless explicitly permitted. Service accounts are scoped to the minimum necessary access — Portainer's Gitea tokens are read-only, unable to push or modify repository contents. Web GUIs are restricted to Traefik IPs and specific management machines; the broader LAN subnet has no access to them. Secrets moved from plaintext files to Vaultwarden early on. SSO and MFA are enforced across all management interfaces via Authentik. Internet exposure is minimized by design — most services are internal-only or accessible only over Tailscale, with a Cloudflare Tunnel handling the small subset that needs public reachability. Each layer is intended to limit the blast radius of any single compromised component.
+
+**Maintainability and consistency** shaped the operational model. A previous lab iteration accumulated patchwork solutions, inconsistent conventions, and tightly coupled configurations — changes reliably broke unrelated things. This lab was designed to avoid that. Infrastructure changes flow through Git: each complex stack has a dedicated Gitea repository, Docker Compose files follow a consistent layout, and Portainer deploys from those repositories via GitOps workflows rather than ad-hoc changes. Naming conventions, VM roles, and container configurations are standardized across hosts. Purpose-built VMs handle specific domains (mgmt-01, obs-01, auth-01, etc.) rather than co-locating unrelated services. Ansible and Semaphore handle cluster-wide automation and scheduled health checks. The goal is an environment where making a change is straightforward and its scope is predictable.
+
+**Redundancy and disaster recovery** were informed by real data loss from the previous lab. The current design targets the ability to survive any single failure — whether a disk, a host, a power event, or a security incident — without permanent data loss or extended downtime. DNS runs across three nodes. Reverse proxies are deployed in a redundant pair with automatic failover. Proxmox Backup Server runs a two-node chain with offsite sync to Cloudflare R2, ensuring a clean copy survives even a local ransomware event. ZFS provides storage-level redundancy on the NAS. UPS units cover all hardware against power loss. For services not yet redundant, break-glass recovery procedures are documented and tested. Expanding redundancy to the observability, auth, and secrets stacks is an active near-term priority.
+
+**Observability** closes the loop. Prometheus scrapes metrics from all hosts via node, cAdvisor, PVE, PBS, and blackbox exporters. Grafana provides dashboards. Loki aggregates logs via Alloy. Alertmanager handles routing and email notifications. Weekly iPerf3 tests baseline network throughput between hosts to catch degradation before it becomes a problem. The intent is that failures surface through alerts and dashboards rather than being discovered when something stops working.
+
+---
+
 ## Key Design Patterns
 
 **GitOps deployments** — Complex stacks (reverse proxies, observability, auth, management) each have a dedicated Gitea repository. Docker Compose files live in a `/compose` subdirectory. Each repository has a dedicated Gitea service account scoped to that repo only, following least-privilege principles — no single credential grants access across stacks. Portainer uses read-only access tokens tied to these service accounts, meaning it can pull Compose files but cannot push or modify repository contents. All infrastructure changes go through Git.
@@ -95,3 +109,26 @@ Tailscale is deployed on all primary servers, providing secure remote access wit
 **Observability:** Prometheus, Grafana, Loki, Alertmanager, Alloy, cAdvisor, multiple exporters  
 **Storage:** ZFS (RAIDZ mirror HDD + RAIDZ0 NVMe), NFS, Samba, Cloudflare R2 (offsite), Proxmox Backup Server  
 **Scripting:** Python, Bash
+
+---
+
+## Current State
+
+| Area | Status | Notes |
+|---|---|---|
+| Proxmox cluster | ✅ Live | 15 nodes, all healthy |
+| Networking | ✅ Live | UCG-Max, USW Pro Max 24, USW Flex XG |
+| DNS | ✅ Live · redundant | 3-node Technitium cluster |
+| Reverse proxy | ✅ Live · redundant | rp-01 + rp-02, Traefik, 60s TTL failover |
+| Authentik (SSO/MFA) | ✅ Live · single node | Redundancy planned |
+| Gitea + Portainer + Ansible | ✅ Live · single node | mgmt-01 redundancy planned (lower priority) |
+| Proxmox Backup Server | ✅ Live · redundant | pbs-serv02 + pbs-serv03 chain, R2 offsite sync |
+| Observability stack | ✅ Live · single node | obs-01 redundancy planned |
+| Vaultwarden | ✅ Live · single node | Redundancy planned |
+| Internal PKI | ✅ Live | Offline root CA + step-ca |
+| VLAN segmentation | 🔄 In progress | Management VLAN live; internal services, IoT, and internet-exposed VLANs planned |
+| UPS shutdown automation | 🔄 In progress | Hardware in place, automation not yet configured |
+| RustDesk server | 📋 Planned | Self-hosted remote desktop relay |
+| Lab wiki / documentation platform | 📋 Planned | Centralized internal docs |
+| Security monitoring (SIEM/IDPS) | 📋 Planned | Log aggregation, alerting, host-based intrusion detection |
+| Vulnerability scanning | 📋 Planned | Scheduled scanning + dedicated pentest VM |
