@@ -1,12 +1,12 @@
 # proxmox-homelab
 
-A production-grade private cloud built from the ground up as a learning environment and personal infrastructure platform. What started as a few old desktop PCs in early 2025 has grown into a 13-node Proxmox cluster running enterprise-pattern security, networking, and DevOps tooling.
+A production-grade private cloud built from the ground up as a learning environment and personal infrastructure platform. What started as a few old desktop PCs in early 2025 has grown into a 15-node Proxmox cluster running enterprise-pattern security, networking, and DevOps tooling.
 
 ---
 
 ## Architecture Overview
 
-**Compute:** 6 tower/rack servers (serv01–06) and 7 mini PCs (mini01–07), all running Proxmox VE. Workloads are distributed across dedicated VMs and LXC containers depending on resource requirements.
+**Compute:** 2 Dell PowerEdge rack servers (R340 and R430), 6 tower servers (serv01–06), and 7 mini PCs (mini01–07), all running Proxmox VE — 15 nodes total. Workloads are distributed across dedicated VMs and LXC containers depending on resource requirements.
 
 **Networking:** VLAN-segmented flat network with a management VLAN (10.0.0.0/24) and planned expansion into internal services, internet-exposed, and IoT/WiFi tiers. All inter-VLAN routing is controlled by firewall policy.
 
@@ -34,7 +34,7 @@ A production-grade private cloud built from the ground up as a learning environm
 
 ## Key Design Patterns
 
-**GitOps deployments** — Complex stacks (reverse proxies, observability, auth, management) each have a dedicated Gitea repository. Docker Compose files live in a `/compose` subdirectory. Portainer is configured to pull from the repo and redeploy on change. All infrastructure changes go through Git.
+**GitOps deployments** — Complex stacks (reverse proxies, observability, auth, management) each have a dedicated Gitea repository. Docker Compose files live in a `/compose` subdirectory. Each repository has a dedicated Gitea service account scoped to that repo only, following least-privilege principles — no single credential grants access across stacks. Portainer uses read-only access tokens tied to these service accounts, meaning it can pull Compose files but cannot push or modify repository contents. All infrastructure changes go through Git.
 
 **Zero-trust firewall** — Proxmox firewall enforces default-deny at the hypervisor level for both inbound and outbound traffic. Services communicate only on explicitly permitted ports to permitted sources, using IPSets for source groups and Security Groups for reusable rule sets.
 
@@ -48,7 +48,15 @@ A production-grade private cloud built from the ground up as a learning environm
 
 ## Storage
 
-NFS storage is provided cluster-wide by `serv01`, which runs a ZFS RAIDZ mirror across 4 hard drives. Proxmox hosts mount NFS shares for VM storage, ISO libraries, and backup staging.
+All shared storage is served by `serv01`, which runs two independent ZFS volumes and acts as both an NFS and SMB server for the cluster.
+
+**HDD volume — RAIDZ mirror (4 drives, ~30TB usable):** Primary long-term storage. Provides redundancy and high capacity. Used for large data archives, VM storage, ISO libraries, and anything where durability matters more than throughput.
+
+**NVMe volume — RAIDZ0 (single NVMe, ~4TB):** High-I/O scratch and transfer tier. No redundancy by design — used for fast temporary transfers and workloads where speed is the priority and the data is either ephemeral or lives elsewhere durably.
+
+Each volume has ZFS datasets created on it for dedicated purposes (SMB storage and NFS storage), making storage space dynamically allocated within each volume — datasets grow as needed rather than being statically partitioned. This means the full capacity of each pool is available to whichever dataset needs it at any given time.
+
+Both NFS and SMB (Samba) are served from all four datasets, making storage available to Proxmox nodes and VMs via NFS mounts, and to Windows devices on the network via Samba shares — from the same underlying ZFS infrastructure.
 
 ---
 
@@ -83,5 +91,5 @@ Tailscale is deployed on all primary servers, providing secure remote access wit
 **Security:** Proxmox firewall (IPSets/Security Groups), Authentik, step-ca, Vaultwarden  
 **DevOps:** Gitea, GitHub, Portainer, Ansible, Semaphore, Docker Compose  
 **Observability:** Prometheus, Grafana, Loki, Alertmanager, Alloy, cAdvisor, multiple exporters  
-**Storage:** ZFS RAIDZ, NFS, Cloudflare R2 (offsite), Proxmox Backup Server  
+**Storage:** ZFS (RAIDZ mirror HDD + RAIDZ0 NVMe), NFS, Samba, Cloudflare R2 (offsite), Proxmox Backup Server  
 **Scripting:** Python, Bash
